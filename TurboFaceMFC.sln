@@ -1,0 +1,31 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio 15
+VisualStudioVersion = 15.0.27703.2035
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "TurboFaceMFC", "TurboFaceMFC\TurboFaceMFC.vcxproj", "{680CE6A6-01C8-47CE-9440-8C50E3B9CEBB}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|x64 = Debug|x64
+		Debug|x86 = Debug|x86
+		Release|x64 = Release|x64
+		Release|x86 = Release|x86
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{680CE6A6-01C8-47CE-9440-8C50E3B9CEBB}.Debug|x64.ActiveCfg = Debug|x64
+		{680CE6A6-01C8-47CE-9440-8C50E3B9CEBB}.Debug|x64.Build.0 = Debug|x64
+		{680CE6A6-01C8-47CE-9440-8C50E3B9CEBB}.Debug|x86.ActiveCfg = Debug|Win32
+		{680CE6A6-01C8-47CE-9440-8C50E3B9CEBB}.Debug|x86.Build.0 = Debug|Win32
+		{680CE6A6-01C8-47CE-9440-8C50E3B9CEBB}.Release|x64.ActiveCfg = Release|x64
+		{680CE6A6-01C8-47CE-9440-8C50E3B9CEBB}.Release|x64.Build.0 = Release|x64
+		{680CE6A6-01C8-47CE-9440-8C50E3B9CEBB}.Release|x86.ActiveCfg = Release|Win32
+		{680CE6A6-01C8-47CE-9440-8C50E3B9CEBB}.Release|x86.Build.0 = Release|Win32
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {88B6B0F1-F7AE-45F7-A6F6-682DF9DE2777}
+	EndGlobalSection
+EndGlobal
