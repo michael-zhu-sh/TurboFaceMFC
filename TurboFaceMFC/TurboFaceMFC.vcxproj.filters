@@ -33,6 +33,9 @@
     <ClInclude Include="facedll.h">
       <Filter>头文件</Filter>
     </ClInclude>
+    <ClInclude Include="CreateDbDlg.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="TurboFaceMFC.cpp">
@@ -42,6 +45,9 @@
       <Filter>源文件</Filter>
     </ClCompile>
     <ClCompile Include="stdafx.cpp">
+      <Filter>源文件</Filter>
+    </ClCompile>
+    <ClCompile Include="CreateDbDlg.cpp">
       <Filter>源文件</Filter>
     </ClCompile>
   </ItemGroup>
@@ -61,7 +67,7 @@
     </Image>
   </ItemGroup>
   <ItemGroup>
-    <Library Include="..\x64\Debug\TurboFaceDll.lib">
+    <Library Include="..\x64\Release\TurboFaceDll.lib">
       <Filter>资源文件</Filter>
     </Library>
   </ItemGroup>

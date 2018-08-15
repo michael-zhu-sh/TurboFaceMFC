@@ -3,8 +3,8 @@
 #include <vector>
 
 __declspec(dllexport) size_t search(
-	const std::string& faceImgFile,
-	const std::string& faceDbCsv,
+	const std::string& faceImageFile,
+	const std::string& faceDbPath,
+	const std::string& faceModelPath,
 	const float distanceThreshold,
-	std::vector<std::pair<std::string, float>>& matchedImageVec
-);
+	std::vector<std::string>& matchedImgFileVec);

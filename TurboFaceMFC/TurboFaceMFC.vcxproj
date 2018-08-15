@@ -183,6 +183,7 @@
     </ResourceCompile>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClInclude Include="CreateDbDlg.h" />
     <ClInclude Include="facedll.h" />
     <ClInclude Include="Resource.h" />
     <ClInclude Include="stdafx.h" />
@@ -191,6 +192,7 @@
     <ClInclude Include="TurboFaceMFCDlg.h" />
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="CreateDbDlg.cpp" />
     <ClCompile Include="stdafx.cpp">
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">Create</PrecompiledHeader>
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Create</PrecompiledHeader>
@@ -210,7 +212,7 @@
     <Image Include="res\TurboFaceMFC.ico" />
   </ItemGroup>
   <ItemGroup>
-    <Library Include="..\x64\Debug\TurboFaceDll.lib" />
+    <Library Include="..\x64\Release\TurboFaceDll.lib" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
