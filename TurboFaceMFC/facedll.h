@@ -29,3 +29,11 @@ __declspec(dllexport) size_t search(
 	const std::string& faceModelPath,
 	const float distanceThreshold,
 	std::vector<std::string>& matchedImgFileVec);
+
+/*
+查询脸库数据记录数。
+
+返回值：
+脸库数据记录数。
+*/
+__declspec(dllexport) size_t count();
