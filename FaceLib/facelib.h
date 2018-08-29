@@ -5,15 +5,15 @@
 /*
 初始化系统。
 */
-__declspec(dllexport) int init(
+int init(
 	const std::string& faceDbPath,
 	const std::string& faceModelPath
 );
 
 /*
-搜索。
+建库。
 */
-__declspec(dllexport) int create(
+int create(
 	const std::string& faceDbPath,
 	const std::string& faceModelPath,
 	const std::string& faceImagesPath,
@@ -21,9 +21,9 @@ __declspec(dllexport) int create(
 );
 
 /*
-建库。
+搜索。
 */
-__declspec(dllexport) size_t search(
+int search(
 	const std::string& faceImageFile,
 	const std::string& faceDbPath,
 	const std::string& faceModelPath,
@@ -36,4 +36,4 @@ __declspec(dllexport) size_t search(
 返回值：
 脸库数据记录数。
 */
-__declspec(dllexport) size_t count();
+size_t count();
