@@ -1,9 +1,6 @@
 /*
-TurboFaceDll.cpp: ¶¨Òå DLL Ó¦ÓÃ³ÌĞòµÄµ¼³öº¯Êı¡£
-__declspec(dllexport)Ç°×ºÊÇµ¼³öº¯Êı£¬ÓĞ4¸ö£ºinitÁ³¿â³õÊ¼»¯¡¢countÁ³¿â¼ÆÊı¡¢searchËÑË÷ºÍcreate½¨¿â¡£
 author: Michael Zhu.
 email:michael.ai@foxmail.com
-»¹ÓĞTODOĞèÒªÍê³É¡£
 */
 #include "stdafx.h"
 
@@ -13,7 +10,6 @@ email:michael.ai@foxmail.com
 #include <string>
 #include <vector>
 #include <io.h>
-#include <time.h>
 
 //DLib headers.
 #include <dlib/cmd_line_parser.h>
@@ -27,15 +23,11 @@ email:michael.ai@foxmail.com
 #include <dlib/string.h>
 #include <dlib/logger.h>
 
-//OpenCV header.
-//#include "opencv2/opencv.hpp"
-
+//project headers.
 #include "facelib.h"
-
 
 using namespace std;
 using namespace dlib;
-//using namespace cv;
 
 
 template <template <int, template<typename>class, int, typename> class block, int N, template<typename>class BN, typename SUBNET>
@@ -71,32 +63,21 @@ frontal_face_detector gDetector = get_frontal_face_detector();	//¼ÓÔØÈËÁ³¼ì²âÆ÷¡
 shape_predictor gSp;//±ê¶¨ÈËÁ³¡£
 anet_type gNet;		//¼ÓÔØResNet×¼±¸½øĞĞÈËÁ³ÌØÕ÷×¥È¡¡£
 bool gNNFlag = false;	//Éñ¾­ÍøÂçÊÇ·ñÒÑ³õÊ¼»¯¡£
-						/*$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$*/
+/*$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$*/
 
-						/*Á³¿â$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$*/
+/*Á³¿â$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$*/
 std::map<std::string, matrix<float>> gFaceCache;	//Á³¿â»º´æ¡£
 bool gDBFlag = false;	//Á³¿âÊÇ·ñÒÑ¼ÓÔØµ½»º´æ¡£
-						/*$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$*/
+/*$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$*/
 
-						/*ÈÕÖ¾$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$*/
-class LoggerHook
-{
+/*ÈÕÖ¾$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$*/
+class LoggerHook	{
 private:
 	ofstream fout;
 
 public:
 	LoggerHook() {
 		fout.open("c:/turboface/logs/face.log.txt", ios::app);
-	}
-
-	std::string getTime() {
-		char buffer[80];
-		time_t rawtime;
-		time(&rawtime);
-		struct tm * timeinfo = localtime(&rawtime);
-		strftime(buffer, 80, "%Y/%m/%d %H:%M:%S", timeinfo);
-
-		return std::string(buffer);
 	}
 
 	void log(
@@ -106,12 +87,9 @@ public:
 		const char* message_to_log
 	)
 	{
-		time_t rawtime;
-		struct tm * timeinfo;
-		time(&rawtime);
-		timeinfo = localtime(&rawtime);
-
-		fout << "[" << getTime() << "] " << logger_name << ": " << message_to_log << endl;
+		CTime now = CTime::GetCurrentTime();
+		CString tStr = now.Format("%Y-%m-%d %H:%M:%S");
+		fout << "[" << CT2A(tStr) << "] " << logger_name << ": " << message_to_log << endl;
 		// Log all messages from any logger to our log file.
 		//fout << ll << " [" << thread_id << "] " << logger_name << ": " << message_to_log << endl;
 	}
@@ -193,7 +171,7 @@ int initDB(const std::string& faceDbPath) {
 		//ÒÑ³õÊ¼»¯Á³¿â£¬SKIP.
 		return 0;
 	}
-
+	CTime t1	= CTime::GetCurrentTime();
 	const string faceDbFile = faceDbPath + "/turbofacedb.dat";
 	ifstream facedb(faceDbFile);
 	if (!facedb) {
@@ -227,17 +205,13 @@ int initDB(const std::string& faceDbPath) {
 	}
 	facedb.close();
 	gDBFlag = true;
-
-	ss.clear();
-	ss << gFaceCache.size();
-	std::string str;
-	ss >> str;
-	flog << LINFO << "There are " + str + " faces loaded from FaceDB to memory cache.";
+	CTimeSpan ts = CTime::GetCurrentTime() - t1;
+	flog << LINFO << "In fuction initDB(), it takes " <<ts.GetTotalSeconds()<< " seconds to load " << gFaceCache.size() <<" faces from FaceDB file to memory cache.";
 
 	return 0;
 }
 
-bool CmpByValue(const pair<std::string, float>& left, const pair<std::string, float>& right) {
+inline bool CmpByValue(const pair<std::string, float>& left, const pair<std::string, float>& right) {
 	//distanceĞ¡µÄÅÅÔÚÇ°Ãæ£¬ÉıĞòÅÅÁĞ¡£
 	return left.second < right.second;
 }
@@ -288,8 +262,7 @@ int init(
 	const std::string& faceModelPath
 ) {
 	int ret = 0;
-	time_t begin, end;
-	time(&begin);
+	CTime t1 = CTime::GetCurrentTime();
 
 	initLog();
 
@@ -297,9 +270,8 @@ int init(
 
 	ret	= initDB(faceDbPath);
 
-	int seconds = (int)difftime(time(&end), begin);
-
-	flog << LDEBUG << "It takes " << seconds << " seconds to call init() at face_kernel.dll.";
+	CTimeSpan ts = CTime::GetCurrentTime() - t1;
+	flog << LDEBUG << "In function init()_external, it takes " << ts.GetTotalSeconds() << " seconds to finish.";
 
 	return ret;
 }
@@ -318,12 +290,11 @@ int create(
 		return -1;
 	}
 	if (0 != initModel(faceModelPath)) {
-		flog << LERROR << "Because call initModel() return not0 in dllexport create(), so function return -1 now!";
+		flog << LERROR << "Because call initModel() return not 0 in dllexport create(), so function return -1 now!";
 		return -1;
 	}
 
 	std::string msgStr;
-
 	const string faceDbFile = faceDbPath + "/turbofacedb.dat";
 	ofstream facedb(faceDbFile, append ? ofstream::app : ofstream::trunc);
 	if (facedb.eof() || !facedb) {
@@ -331,6 +302,7 @@ int create(
 		return -2;
 	}
 
+	CTime t1 = CTime::GetCurrentTime();
 	std::vector<string> faceFileVecSource;	//±£´æËùÓĞµÄÍ¼ÏñÎÄ¼şÃû¡£
 	findFilesRecursively(faceImagesPath, faceFileVecSource);	//µİ¹éËÑË÷faceImagesPathÄ¿Â¼ÏÂµÄËùÓĞÎÄ¼ş¡£
 
@@ -347,7 +319,7 @@ int create(
 	stringstream ss;
 	ss << faceFileVecSource.size();
 	ss >> msgStr;
-	flog << LINFO << "In dllexport create() we find " + msgStr + " image files to process, so wait a long time......";
+	flog << LINFO << "In function create()_external we find " + msgStr + " image files to process, so wait a long time......";
 	for (size_t i = 0; i != faceFileVecSource.size(); i++) {
 		//µü´úËùÓĞµÄÍ¼ÏñÎÄ¼ş£¬Èç¹ûÆäÖĞÖ»ÓĞ1¸öÈËÁ³£¬ÔòĞ´ÈëÁ³¿â¡£
 		if (append && 0 != gFaceCache.count(faceFileVecSource[i])) {
@@ -360,14 +332,14 @@ int create(
 
 		std::vector<dlib::rectangle> dets = gDetector(img);
 		if (0 == dets.size()) {
-			flog << LWARN << "In dllexport create(), we can NOT find any faces in [" + faceFileVecSource[i] + "], so continue to next image file.";
+			flog << LWARN << "In function create()_external, we can NOT find any faces in [" << faceFileVecSource[i] << "], so continue to next image file.";
 			continue;
 		}
 		else if (1 != dets.size()) {
 			ss << dets.size();
 			msgStr.clear();
 			ss >> msgStr;
-			flog << LWARN << "In dllexport create(), " + msgStr + " faces are found in [" + faceFileVecSource[i] + "], so we SKIP it and continue to next image file.";
+			flog << LWARN << "In function create()_external, " << msgStr << " faces are found in [" << faceFileVecSource[i] << "], so we SKIP it and continue to next image file.";
 			continue;
 		}
 		else {
@@ -397,7 +369,7 @@ int create(
 			msgStr.clear();
 			ss << i;
 			ss >> msgStr;
-			flog << LINFO << "In dllexport create(), we already proceed " + msgStr + "image files.";
+			flog << LINFO << "In function create()_external, we already proceed " + msgStr + "image files.";
 			ss.clear();
 			msgStr.clear();
 			ss << faceFileVecSource.size();
@@ -409,7 +381,7 @@ int create(
 			msgStr.clear();
 			ss << i;
 			ss >> msgStr;
-			flog << LDEBUG << "In dllexport create(), we already proceed " + msgStr + "image files, please drink a cup of coffee to wait......";
+			flog << LDEBUG << "In function create()_external, we already proceed " + msgStr + " image files, please drink a cup of coffee to wait......";
 		}
 	}
 	ss.clear();
@@ -417,14 +389,14 @@ int create(
 	ss << cnt;
 	ss >> msgStr;
 	if (append) {
-		flog << LINFO << msgStr + " face row records are APPEND to FaceDB.";
+		flog << LINFO << msgStr << " face row records are APPEND to FaceDB.";
 	}
 	else {
-		flog << LINFO << msgStr + " face row records are OVERWRITE to FaceDB.";
+		flog << LINFO << msgStr << " face row records are OVERWRITE to FaceDB.";
 	}
 	facedb.close();
-
-	//flog << LINFO << "In dllexport create(), it takes " + msgStr << " seconds to proceed all of image files.";
+	CTimeSpan ts = CTime::GetCurrentTime() - t1;
+	flog << LINFO << "In create()_external, it takes " << ts.GetTotalSeconds() << " seconds to proceed all of image files.";
 
 	return 0;
 }
@@ -437,6 +409,13 @@ distanceThreshold:2¸öÈËÁ³ÏàËÆ¶ÈãĞÖµ£¬Ö»ÓĞĞ¡ÓÚ´ËãĞÖµµÄÈËÁ³Í¼Ïñ²Å»á±»Ñ¡Ôñ²¢·µ»Ø¡£
 
 Êä³ö²ÎÊı£º
 matchedImgFileVec:ËÑË÷µ½·ûºÏãĞÖµÒªÇóµÄÈËÁ³Í¼Ïñ£¨È«Â·¾¶£©¡£
+
+·µ»ØÂë£º
+0
+-1£º³õÊ¼»¯Á³¿âÊ§°Ü£¬ÎŞ·¨½øĞĞËÑË÷¡£
+-2£ºÊäÈëÎÄ¼ş¶ÁÈ¡´íÎó¡£
+-3£ºÊäÈëÍ¼ÏñÎÄ¼şÖĞÃ»ÓĞ¼ì²âµ½ÈËÁ³¡£
+-4£ºÊäÈëÍ¼ÏñÎÄ¼şÓĞ¼ì²âµ½¶à¸öÈËÁ³¡£
 */
 int search(
 	const std::string& faceImageFile,
@@ -447,32 +426,33 @@ int search(
 
 	if (0 != init(faceDbPath, faceModelPath)) {
 		//³õÊ¼»¯ÏµÍ³Ê§°Ü£¡
-		flog << LERROR << "In dllexport search() function, FAIL to call init() so return -1!";
+		flog << LERROR << "In function search()_external, FAIL to call init() so return -1!";
 		return -1;
 	}
 	ifstream imageFile(faceImageFile);
 	if (!imageFile) {
 		imageFile.close();
-		flog << LERROR << "In dllexport search() function, FAIL to open faceImageFile so return -1!";
-		return -1;
+		flog << LERROR << "In function search()_external, FAIL to open faceImageFile so return -2!";
+		return -2;
 	}
 	else {
 		imageFile.close();
 	}
 
+	CTime t1 = CTime::GetCurrentTime();
 	matrix<rgb_pixel> img;
 	load_image(img, faceImageFile);
 	std::vector<dlib::rectangle> dets = gDetector(img);
 	if (0 == dets.size()) {
-		flog << LWARN << "In dllexport search() function, Can NOT find any faces in input file:" + faceImageFile + ", so return 0.";
-		return 0;
+		flog << LWARN << "In function search()_external, Can NOT find any faces in input file:" << faceImageFile << ", so return 0.";
+		return -3;
 	}
 	else if (1 != dets.size()) {
-		flog << LWARN << "In dllexport search() function, more than 1 faces are found in input file:" + faceImageFile + ", so return 0.";
-		return 0;
+		flog << LWARN << "In function search()_external, more than 1 faces are found in input file:" << faceImageFile << ", so return 0.";
+		return -4;
 	}
 	else {
-		flog << LDEBUG << "In dllexport search() function, 1 faces are found in input file:" + faceImageFile + " normally.";
+		flog << LDEBUG << "In function search()_external, 1 faces are found in input file:" << faceImageFile << " normally.";
 	}
 
 	auto shape = gSp(img, dets[0]);
@@ -498,8 +478,8 @@ int search(
 		if (i > 7)	break;	//×î¶à·µ»Ø8¸öÈËÁ³Í¼ÏñÎÄ¼ş¡£
 		matchedImgFileVec.push_back(matchedImageVec[i].first);
 	}
-
-	//flog << LDEBUG << "In dllexport search() function, it takes "+logStr+" seconds to finish search function.";
+	CTimeSpan ts = CTime::GetCurrentTime() - t1;
+	flog << LDEBUG << "In function search()_external, it takes "<<ts.GetTotalSeconds()<<" seconds to finish.";
 
 	return matchedImgFileVec.size();
 }
@@ -516,7 +496,7 @@ size_t count() {
 		rows = gFaceCache.size();
 	}
 	else {
-		flog << LWARN << "In dllexport count(), FaceDB is NOT initialized, please call init() first THEN call count().";
+		flog << LWARN << "In function count()_external, FaceDB is NOT initialized, please call init() first THEN call count().";
 		rows = -1;
 	}
 
