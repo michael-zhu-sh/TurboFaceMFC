@@ -66,7 +66,7 @@ bool gNNFlag = false;	//神经网络是否已初始化。
 /*$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$*/
 
 /*脸库$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$*/
-std::map<std::string, matrix<float>> gFaceCache;	//脸库缓存。
+std::map< std::string, std::vector<matrix<float,0,1>> > gFaceCache;	//脸库缓存。
 bool gDBFlag = false;	//脸库是否已加载到缓存。
 /*$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$*/
 
@@ -89,7 +89,7 @@ public:
 	{
 		CTime now = CTime::GetCurrentTime();
 		CString tStr = now.Format("%Y-%m-%d %H:%M:%S");
-		fout << "[" << CT2A(tStr) << "] " << logger_name << ": " << message_to_log << endl;
+		fout << "[" << CT2A(tStr) << "]["<<ll<<"] " << logger_name << ": " << message_to_log << endl;
 		// Log all messages from any logger to our log file.
 		//fout << ll << " [" << thread_id << "] " << logger_name << ": " << message_to_log << endl;
 	}
@@ -99,6 +99,20 @@ LoggerHook hook;
 logger flog("face");
 bool gLogFlag = false;
 /*$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$*/
+
+/*class Helper=============================================================================*/
+float face::Helper::minDistance(dlib::matrix<float> src, std::vector<dlib::matrix<float,0,1>> dst) {
+	float minDist = 1.0f,dist;
+	for (size_t i = 0; i != dst.size(); i++) {
+		dist = length(src - dst[i]);
+		if ( dist < minDist) {
+			minDist = dist;
+		}
+	}
+
+	return minDist;
+}
+/*=============================================================================*/
 
 /*=============================================================================*/
 void splitString(const std::string& s, std::vector<std::string>& v, const std::string& c)
@@ -171,7 +185,7 @@ int initDB(const std::string& faceDbPath) {
 		//已初始化脸库，SKIP.
 		return 0;
 	}
-	CTime t1	= CTime::GetCurrentTime();
+	CTime t1 = CTime::GetCurrentTime();
 	const string faceDbFile = faceDbPath + "/turbofacedb.dat";
 	ifstream facedb(faceDbFile);
 	if (!facedb) {
@@ -183,30 +197,40 @@ int initDB(const std::string& faceDbPath) {
 		flog << LINFO << "Succeed to open facedb " + faceDbFile + " in function initDB()";
 	}
 
-	std::string line;
-	std::vector<std::string> strVec;
+	std::string line,fvStr;
+	std::vector<std::string> strVec,fvVec;
+	size_t featureNum;
+	float fv;
 	stringstream ss;
 	while (!facedb.eof()) {
 		facedb >> line;
 		if (line.empty())	continue;
-		splitString(line, strVec, ",");
-
-		float fv;
-		matrix<float, 128, 1> feature;
-		for (size_t r = 0; r != 128; r++) {
-			ss << strVec[r + 1];
-			ss >> fv;
-			feature(r, 0) = fv;
-			ss.clear();
-		}
-		gFaceCache.insert(std::pair<std::string, matrix<float>>(strVec[0], feature));
 
 		strVec.clear();
+		splitString(line, strVec, "|");
+		ss << strVec[1];//有几个特征向量，如果1个图像中有多个faces，则就有多个特征向量被保存了。
+		ss >> featureNum;
+		ss.clear();
+		std::vector<matrix<float,0,1>> features;
+		for (size_t i = 0; i != featureNum; i++) {
+			fvStr = strVec[2+i];//特征向量的值串。
+			splitString(fvStr, fvVec, ",");//解析出每个值。
+			matrix<float, 128, 1> feature;
+			for (size_t r = 0; r != 128; r++) {
+				ss << fvVec[r];
+				ss >> fv;
+				feature(r, 0) = fv;
+				ss.clear();
+			}
+			fvVec.clear();
+			features.push_back(feature);
+		}
+		gFaceCache.insert(std::pair<std::string, std::vector<matrix<float,0,1>>>(strVec[0], features));
 	}
 	facedb.close();
 	gDBFlag = true;
 	CTimeSpan ts = CTime::GetCurrentTime() - t1;
-	flog << LINFO << "In fuction initDB(), it takes " <<ts.GetTotalSeconds()<< " seconds to load " << gFaceCache.size() <<" faces from FaceDB file to memory cache.";
+	flog << LINFO << "In fuction initDB(), it takes " << ts.GetTotalSeconds() << " seconds to load " << gFaceCache.size() << " faces from FaceDB file to memory cache.";
 
 	return 0;
 }
@@ -298,7 +322,7 @@ int create(
 	const string faceDbFile = faceDbPath + "/turbofacedb.dat";
 	ofstream facedb(faceDbFile, append ? ofstream::app : ofstream::trunc);
 	if (facedb.eof() || !facedb) {
-		flog << LERROR << "FAIL to open or create facedb [" + faceDbFile + "] in dllexport create(), so function return -2 now!";
+		flog << LERROR << "FAIL to open or create facedb [" << faceDbFile << "] in function create(), so function return -2 now!";
 		return -2;
 	}
 
@@ -330,58 +354,57 @@ int create(
 		matrix<rgb_pixel> img;
 		load_image(img, faceFileVecSource[i]);
 
-		std::vector<dlib::rectangle> dets = gDetector(img);
-		if (0 == dets.size()) {
+		faces.clear();
+		for (auto face : gDetector(img))	{
+			auto shape = gSp(img, face);
+			matrix<rgb_pixel> face_chip;
+			extract_image_chip(img, get_face_chip_details(shape, 150, 0.25), face_chip);
+			faces.push_back(move(face_chip));
+		}
+		if (0 == faces.size()) {
 			flog << LWARN << "In function create()_external, we can NOT find any faces in [" << faceFileVecSource[i] << "], so continue to next image file.";
 			continue;
 		}
-		else if (1 != dets.size()) {
-			ss << dets.size();
+		else if (1 != faces.size()) {
+			ss.clear();
+			ss << faces.size();
 			msgStr.clear();
 			ss >> msgStr;
-			flog << LWARN << "In function create()_external, " << msgStr << " faces are found in [" << faceFileVecSource[i] << "], so we SKIP it and continue to next image file.";
-			continue;
+			flog << LDEBUG << "In function create()_external, " << msgStr << " faces are found in [" << faceFileVecSource[i] << "].";
 		}
-		else {
-			//Find only 1 face in the image file normally.
-		}
-
-		//below codes to compute the feature of this face, then write to FaceDB file.
-		auto shape = gSp(img, dets[0]);
-		matrix<rgb_pixel> face_chip;
-		extract_image_chip(img, get_face_chip_details(shape, 150, 0.25), face_chip);
-		faces.clear();
-		faces.push_back(move(face_chip));
-		std::vector<matrix<float, 0, 1>> face_descriptors = gNet(faces);
-		matrix<float> feature = face_descriptors[0];	//only 1 face.
-		facedb << faceFileVecSource[i] << ",";
-		for (size_t r = 0; r != feature.nr(); r++) {
-			facedb << feature(r, 0) << ",";
+		std::vector<matrix<float,0,1>> features = gNet(faces);
+		facedb << faceFileVecSource[i] << "|" << features.size() << "|";
+		for (size_t j = 0; j != features.size(); j++) {
+			matrix<float> feature = features[j];
+			for (size_t r = 0; r != feature.nr(); r++) {
+				facedb << feature(r, 0) << ",";
+			}
+			facedb << "|";
 		}
 		facedb << endl;
 		cnt++;
 
 		//writeback to memory cache.
-		gFaceCache.insert(std::pair<std::string, matrix<float>>(faceFileVecSource[i], feature));
+		gFaceCache.insert(std::pair< std::string, std::vector<matrix<float,0,1>> >(faceFileVecSource[i], features));
 
 		if (i % 1000 == 0) {
 			ss.clear();
 			msgStr.clear();
 			ss << i;
 			ss >> msgStr;
-			flog << LINFO << "In function create()_external, we already proceed " + msgStr + "image files.";
+			flog << LINFO << "In function create()_external, we already proceed " << msgStr << "image files.";
 			ss.clear();
 			msgStr.clear();
-			ss << faceFileVecSource.size();
+			ss << (faceFileVecSource.size() - i);
 			ss >> msgStr;
-			flog << LINFO << "But total " + msgStr + " image files need to be proceed, please drink a cup of coffee to wait......";
+			flog << LINFO << "But total " << msgStr << " remainder image files need to be proceed, please drink a cup of coffee to wait......";
 		}
 		if (i % 100 == 0) {
 			ss.clear();
 			msgStr.clear();
 			ss << i;
 			ss >> msgStr;
-			flog << LDEBUG << "In function create()_external, we already proceed " + msgStr + " image files, please drink a cup of coffee to wait......";
+			flog << LDEBUG << "In function create()_external, we already proceed " << msgStr << " image files, please drink a cup of coffee to wait......";
 		}
 	}
 	ss.clear();
@@ -411,7 +434,7 @@ distanceThreshold:2个人脸相似度阈值，只有小于此阈值的人脸图像才会被选择并返回。
 matchedImgFileVec:搜索到符合阈值要求的人脸图像（全路径）。
 
 返回码：
-0
+0：未找到匹配的人脸。
 -1：初始化脸库失败，无法进行搜索。
 -2：输入文件读取错误。
 -3：输入图像文件中没有检测到人脸。
@@ -464,8 +487,9 @@ int search(
 	matrix<float> feature = features[0];
 	float distance;
 	std::vector<pair<std::string, float>> matchedImageVec;
-	for (std::map<std::string, matrix<float>>::iterator it = gFaceCache.begin(); it != gFaceCache.end(); ++it) {
-		distance = length(feature - (it->second));
+
+	for (std::map<std::string, std::vector<matrix<float,0,1>>>::iterator it = gFaceCache.begin(); it != gFaceCache.end(); ++it) {
+		distance = face::Helper::minDistance(feature, (it->second));
 		if (distance < distanceThreshold) {
 			matchedImageVec.push_back(make_pair(it->first, distance));
 		}
@@ -479,7 +503,7 @@ int search(
 		matchedImgFileVec.push_back(matchedImageVec[i].first);
 	}
 	CTimeSpan ts = CTime::GetCurrentTime() - t1;
-	flog << LDEBUG << "In function search()_external, it takes "<<ts.GetTotalSeconds()<<" seconds to finish.";
+	flog << LDEBUG << "In function search()_external, it takes " << ts.GetTotalSeconds() << " seconds to finish.";
 
 	return matchedImgFileVec.size();
 }

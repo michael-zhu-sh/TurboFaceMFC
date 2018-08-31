@@ -1,6 +1,9 @@
 #pragma once
+//STL headers.
 #include <string>
 #include <vector>
+//DLIB headers.
+#include <dlib/matrix.h>
 
 /*
 初始化系统。
@@ -37,3 +40,11 @@ int search(
 脸库数据记录数。
 */
 size_t count();
+
+namespace face {
+class Helper {
+	public:
+		//计算特征矩阵src和dst数据之间的最小距离。
+		static float minDistance(dlib::matrix<float> src, std::vector<dlib::matrix<float,0,1>> dst);
+};
+}
