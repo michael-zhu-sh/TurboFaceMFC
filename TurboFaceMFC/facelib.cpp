@@ -340,6 +340,7 @@ int create(
 
 	std::vector<matrix<rgb_pixel>> faces;
 	size_t cnt = 0;
+	size_t detNoFace = 0;//未检出人脸的图像数量。
 	stringstream ss;
 	ss << faceFileVecSource.size();
 	ss >> msgStr;
@@ -363,6 +364,7 @@ int create(
 		}
 		if (0 == faces.size()) {
 			flog << LWARN << "In function create()_external, we can NOT find any faces in [" << faceFileVecSource[i] << "], so continue to next image file.";
+			detNoFace++;
 			continue;
 		}
 		else if (1 != faces.size()) {
@@ -407,17 +409,23 @@ int create(
 			flog << LDEBUG << "In function create()_external, we already proceed " << msgStr << " image files, please drink a cup of coffee to wait......";
 		}
 	}
+	facedb.close();
+
 	ss.clear();
 	msgStr.clear();
 	ss << cnt;
 	ss >> msgStr;
 	if (append) {
-		flog << LINFO << msgStr << " face row records are APPEND to FaceDB.";
+		flog << LINFO << "In create()_external, " << msgStr << " faces row records are APPEND to FaceDB.";
 	}
 	else {
-		flog << LINFO << msgStr << " face row records are OVERWRITE to FaceDB.";
+		flog << LINFO << "In create()_external, " << msgStr << " faces row records are OVERWRITE to FaceDB.";
 	}
-	facedb.close();
+	ss.clear();
+	msgStr.clear();
+	ss << detNoFace;
+	ss >> msgStr;
+	flog << LINFO << "In create()_external, find " << msgStr << " image files which have not any face.";
 	CTimeSpan ts = CTime::GetCurrentTime() - t1;
 	flog << LINFO << "In create()_external, it takes " << ts.GetTotalSeconds() << " seconds to proceed all of image files.";
 
