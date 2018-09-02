@@ -68,6 +68,9 @@ bool gNNFlag = false;	//神经网络是否已初始化。
 /*脸库$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$*/
 std::map< std::string, std::vector<matrix<float,0,1>> > gFaceCache;	//脸库缓存。
 bool gDBFlag = false;	//脸库是否已加载到缓存。
+CRITICAL_SECTION CriticalObject;	//多线程建库时的线程关键段。
+std::map<unsigned long, bool> gThreadDone;	//建库线程的结束标志。
+std::ofstream gFacedb;
 /*$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$*/
 
 /*日志$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$*/
@@ -89,7 +92,7 @@ public:
 	{
 		CTime now = CTime::GetCurrentTime();
 		CString tStr = now.Format("%Y-%m-%d %H:%M:%S");
-		fout << "[" << CT2A(tStr) << "]["<<ll<<"] " << logger_name << ": " << message_to_log << endl;
+		fout << "[" << CT2A(tStr) << "]["<<ll<<"]["<<thread_id<<"] " << logger_name << ": " << message_to_log << endl;
 		// Log all messages from any logger to our log file.
 		//fout << ll << " [" << thread_id << "] " << logger_name << ": " << message_to_log << endl;
 	}
@@ -300,6 +303,110 @@ int init(
 	return ret;
 }
 
+//线程化建库。
+UINT ThreadCreate(LPVOID pParam)
+{
+	const unsigned long threadId = GetCurrentThreadId();
+	EnterCriticalSection(&CriticalObject);
+		gThreadDone.insert(make_pair(threadId, false));	//设定本线程的执行标志。
+	LeaveCriticalSection(&CriticalObject);
+
+	std::vector<std::string>* imgFiles = (std::vector<std::string>*)pParam;//获取参数。
+	if (NULL == imgFiles)	return 1;
+
+	//开始处理。
+	frontal_face_detector lDetector = get_frontal_face_detector();	//加载人脸检测器。
+	shape_predictor lSp(gSp);//标定人脸。
+	anet_type lNet(gNet);		//加载ResNet准备进行人脸特征抓取。
+
+	std::vector<matrix<rgb_pixel>> faces;
+	std::string filename;
+	stringstream ss;
+	std::string msgStr;
+	bool bContinue;
+	size_t detNoFace = 0,cnt=0,total= (*imgFiles).size();
+	for (size_t i = 0; i != imgFiles->size(); i++) {
+		filename = (*imgFiles)[i];
+//		flog << LDEBUG << "Thread "<<threadId<<" is proceed image file:"<<filename;
+		bContinue = false;
+		EnterCriticalSection(&CriticalObject);
+			if (0 != gFaceCache.count(filename)) {
+				//当前缓存中已存在这个人脸，SKIP it.
+				bContinue = true;
+			}
+		LeaveCriticalSection(&CriticalObject);
+		if (bContinue)	continue;
+
+		matrix<rgb_pixel> img;
+		load_image(img, filename);
+
+		faces.clear();
+		for (auto face : lDetector(img)) {
+			auto shape = lSp(img, face);
+			matrix<rgb_pixel> face_chip;
+			extract_image_chip(img, get_face_chip_details(shape, 150, 0.25), face_chip);
+			faces.push_back(move(face_chip));
+		}
+		if (0 == faces.size()) {
+			flog << LWARN << "In function ThreadCreate(), we can NOT find any faces in [" << filename << "], so continue to next image file.";
+			detNoFace++;
+			continue;
+		}
+		else if (1 != faces.size()) {
+			ss.clear();
+			ss << faces.size();
+			msgStr.clear();
+			ss >> msgStr;
+			flog << LDEBUG << "In function ThreadCreate(), " << msgStr << " faces are found in [" << filename << "].";
+		}
+		std::vector<matrix<float, 0, 1>> features = lNet(faces);
+		
+		EnterCriticalSection(&CriticalObject);
+			gFacedb << filename << "|" << features.size() << "|";
+			for (size_t j = 0; j != features.size(); j++) {
+				matrix<float> feature = features[j];
+				for (size_t r = 0; r != feature.nr(); r++) {
+					gFacedb << feature(r, 0) << ",";
+				}
+				gFacedb << "|";
+			}
+			gFacedb << endl;
+			
+			//writeback to memory cache.
+			gFaceCache.insert(std::pair< std::string, std::vector<matrix<float, 0, 1>> >(filename, features));
+		LeaveCriticalSection(&CriticalObject);
+		cnt++;
+
+		if (i % 1000 == 0) {
+			ss.clear();
+			msgStr.clear();
+			ss << i;
+			ss >> msgStr;
+			flog << LINFO << "In function ThreadCreate(), we already proceed " << msgStr << "image files.";
+			ss.clear();
+			msgStr.clear();
+			ss << (total - i);
+			ss >> msgStr;
+			flog << LINFO << "But total " << msgStr << " remainder image files need to be proceed, please drink a cup of coffee to wait......";
+		}
+		if (i % 100 == 0) {
+			ss.clear();
+			msgStr.clear();
+			ss << i;
+			ss >> msgStr;
+			flog << LDEBUG << "In function ThreadCreate(), we already proceed " << msgStr << " image files, please drink a cup of coffee to wait......";
+		}
+	}
+	//设定线程结束标志gThreadDone。
+	EnterCriticalSection(&CriticalObject);
+		gThreadDone.erase(threadId);
+		gThreadDone.insert(make_pair(threadId, true));
+	LeaveCriticalSection(&CriticalObject);
+	flog << LDEBUG << "finish thread "<<threadId;
+
+	return 0;   // thread completed successfully  
+}
+
 /*
 建库。
 */
@@ -309,6 +416,7 @@ int create(
 	const std::string& faceImagesPath,
 	bool append
 ) {
+	const size_t NUM_OF_THREADS = 4;	//4T并发。
 	if (faceDbPath.find('\\') != string::npos || faceModelPath.find('\\') != string::npos || faceImagesPath.find('\\') != string::npos) {
 		flog << LERROR << "parameter path seperator should be char '/' in dllexport create(), so function return -1 now!";
 		return -1;
@@ -320,8 +428,8 @@ int create(
 
 	std::string msgStr;
 	const string faceDbFile = faceDbPath + "/turbofacedb.dat";
-	ofstream facedb(faceDbFile, append ? ofstream::app : ofstream::trunc);
-	if (facedb.eof() || !facedb) {
+	gFacedb.open(faceDbFile, append ? ofstream::app : ofstream::trunc);
+	if (gFacedb.eof() || !gFacedb) {
 		flog << LERROR << "FAIL to open or create facedb [" << faceDbFile << "] in function create(), so function return -2 now!";
 		return -2;
 	}
@@ -329,7 +437,9 @@ int create(
 	CTime t1 = CTime::GetCurrentTime();
 	std::vector<string> faceFileVecSource;	//保存所有的图像文件名。
 	findFilesRecursively(faceImagesPath, faceFileVecSource);	//递归搜索faceImagesPath目录下的所有文件。
-
+	const size_t totalFiles = faceFileVecSource.size();	//需要处理的人脸图像文件的总数。
+	const size_t threadTotal = totalFiles / NUM_OF_THREADS;	//按照4T计算，每T需要处理的文件数量。
+	flog << LDEBUG << "In function create(), total " << totalFiles << " image files waiting for proceed, 1 thread will proceed "<<threadTotal<<" files.";
 	if (!append) {
 		//如果是覆盖模式建库，则清空脸库缓存。
 		gFaceCache.clear();
@@ -338,96 +448,51 @@ int create(
 		//如果是追加模式，则保留缓存。
 	}
 
-	std::vector<matrix<rgb_pixel>> faces;
-	size_t cnt = 0;
-	size_t detNoFace = 0;//未检出人脸的图像数量。
-	stringstream ss;
-	ss << faceFileVecSource.size();
-	ss >> msgStr;
-	flog << LINFO << "In function create()_external we find " + msgStr + " image files to process, so wait a long time......";
-	for (size_t i = 0; i != faceFileVecSource.size(); i++) {
-		//迭代所有的图像文件，如果其中只有1个人脸，则写入脸库。
-		if (append && 0 != gFaceCache.count(faceFileVecSource[i])) {
-			//当前缓存中已存在这个人脸，SKIP it.
-			continue;
+	//TODO:考虑多个win thread并发处理。
+	InitializeCriticalSection(&CriticalObject);
+	size_t j = 0;
+	std::vector<std::string> tFileVec[NUM_OF_THREADS];//每个线程有自己的文件需要处理。
+	for (size_t i = 0; i != NUM_OF_THREADS; i++) {
+		j = 0;
+		while (j!=threadTotal) {
+			tFileVec[i].push_back(faceFileVecSource[i*threadTotal + j]);
+			j++;
 		}
-
-		matrix<rgb_pixel> img;
-		load_image(img, faceFileVecSource[i]);
-
-		faces.clear();
-		for (auto face : gDetector(img))	{
-			auto shape = gSp(img, face);
-			matrix<rgb_pixel> face_chip;
-			extract_image_chip(img, get_face_chip_details(shape, 150, 0.25), face_chip);
-			faces.push_back(move(face_chip));
-		}
-		if (0 == faces.size()) {
-			flog << LWARN << "In function create()_external, we can NOT find any faces in [" << faceFileVecSource[i] << "], so continue to next image file.";
-			detNoFace++;
-			continue;
-		}
-		else if (1 != faces.size()) {
-			ss.clear();
-			ss << faces.size();
-			msgStr.clear();
-			ss >> msgStr;
-			flog << LDEBUG << "In function create()_external, " << msgStr << " faces are found in [" << faceFileVecSource[i] << "].";
-		}
-		std::vector<matrix<float,0,1>> features = gNet(faces);
-		facedb << faceFileVecSource[i] << "|" << features.size() << "|";
-		for (size_t j = 0; j != features.size(); j++) {
-			matrix<float> feature = features[j];
-			for (size_t r = 0; r != feature.nr(); r++) {
-				facedb << feature(r, 0) << ",";
+		if (i==(NUM_OF_THREADS-1) && 0!=(totalFiles%NUM_OF_THREADS) ) {
+			//最后1个线程处理剩余无法整除的文件，比如9个文件4线程处理，最后1个线程要处理2+1个文件。
+			for (size_t j = NUM_OF_THREADS*threadTotal; j != totalFiles; j++) {
+				tFileVec[i].push_back(faceFileVecSource[j]);
 			}
-			facedb << "|";
 		}
-		facedb << endl;
-		cnt++;
+		//启动线程进行文件处理工作。
+		CWinThread* tPtr = AfxBeginThread((AFX_THREADPROC)ThreadCreate, (LPVOID)(&tFileVec[i]), THREAD_PRIORITY_NORMAL);
+	}
+	flog << LDEBUG << "In create()_external, succeed to create threads.";
 
-		//writeback to memory cache.
-		gFaceCache.insert(std::pair< std::string, std::vector<matrix<float,0,1>> >(faceFileVecSource[i], features));
-
-		if (i % 1000 == 0) {
-			ss.clear();
-			msgStr.clear();
-			ss << i;
-			ss >> msgStr;
-			flog << LINFO << "In function create()_external, we already proceed " << msgStr << "image files.";
-			ss.clear();
-			msgStr.clear();
-			ss << (faceFileVecSource.size() - i);
-			ss >> msgStr;
-			flog << LINFO << "But total " << msgStr << " remainder image files need to be proceed, please drink a cup of coffee to wait......";
+	bool bContinue;
+	while (true) {
+		//等待子线程结束。
+		Sleep(10000);
+		bContinue = false;
+		EnterCriticalSection(&CriticalObject);
+			for (std::map<unsigned long, bool>::iterator it = gThreadDone.begin(); it != gThreadDone.end(); ++it) {
+				if (it->second == false) {
+					bContinue = true;	//还有线程未结束。
+					break;
+				}
+			}
+		LeaveCriticalSection(&CriticalObject);
+		if (bContinue) {
+			flog << LDEBUG << "In create()_external, continue to wait sub threads......";
+			continue;
 		}
-		if (i % 100 == 0) {
-			ss.clear();
-			msgStr.clear();
-			ss << i;
-			ss >> msgStr;
-			flog << LDEBUG << "In function create()_external, we already proceed " << msgStr << " image files, please drink a cup of coffee to wait......";
-		}
-	}
-	facedb.close();
 
-	ss.clear();
-	msgStr.clear();
-	ss << cnt;
-	ss >> msgStr;
-	if (append) {
-		flog << LINFO << "In create()_external, " << msgStr << " faces row records are APPEND to FaceDB.";
+		break;
 	}
-	else {
-		flog << LINFO << "In create()_external, " << msgStr << " faces row records are OVERWRITE to FaceDB.";
-	}
-	ss.clear();
-	msgStr.clear();
-	ss << detNoFace;
-	ss >> msgStr;
-	flog << LINFO << "In create()_external, find " << msgStr << " image files which have not any face.";
+
+	gFacedb.close();
 	CTimeSpan ts = CTime::GetCurrentTime() - t1;
-	flog << LINFO << "In create()_external, it takes " << ts.GetTotalSeconds() << " seconds to proceed all of image files.";
+	flog << LINFO << "In create()_external, it takes " << ts.GetTotalSeconds() << " seconds to proceed all "<< totalFiles <<" image files.";
 
 	return 0;
 }
