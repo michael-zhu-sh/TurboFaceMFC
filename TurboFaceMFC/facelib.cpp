@@ -2,6 +2,7 @@
 author: Michael Zhu.
 email:michael.ai@foxmail.com
 */
+#include <windows.h>
 #include "stdafx.h"
 
 //STL headers.
@@ -29,6 +30,9 @@ email:michael.ai@foxmail.com
 using namespace std;
 using namespace dlib;
 
+typedef BOOL(WINAPI *LPFN_GLPI)(
+	PSYSTEM_LOGICAL_PROCESSOR_INFORMATION,
+	PDWORD);
 
 template <template <int, template<typename>class, int, typename> class block, int N, template<typename>class BN, typename SUBNET>
 using residual = add_prev1<block<N, BN, 1, tag1<SUBNET>>>;
@@ -280,6 +284,87 @@ void findFilesRecursively(const string& path, std::vector<string>& fileVec)
 	}
 }
 
+// Helper function to count set bits in the processor mask.
+DWORD CountSetBits(ULONG_PTR bitMask)
+{
+	DWORD LSHIFT = sizeof(ULONG_PTR) * 8 - 1;
+	DWORD bitSetCount = 0;
+	ULONG_PTR bitTest = (ULONG_PTR)1 << LSHIFT;
+	DWORD i;
+
+	for (i = 0; i <= LSHIFT; ++i)
+	{
+		bitSetCount += ((bitMask & bitTest) ? 1 : 0);
+		bitTest /= 2;
+	}
+
+	return bitSetCount;
+}
+
+//获取本机的超线程数量。
+unsigned long getLogicProcessCount() {
+	const DWORD DEFAULT_LOGIC_PROCESS_COUNT = 4;
+	LPFN_GLPI glpi;
+	BOOL done = FALSE;
+	PSYSTEM_LOGICAL_PROCESSOR_INFORMATION buffer = NULL;
+	PSYSTEM_LOGICAL_PROCESSOR_INFORMATION ptr = NULL;
+	DWORD returnLength = 0;
+	DWORD logicalProcessorCount = 0;
+	DWORD byteOffset = 0;
+
+	glpi = (LPFN_GLPI)GetProcAddress(GetModuleHandle(TEXT("kernel32")), "GetLogicalProcessorInformation");
+	if (NULL == glpi)
+	{
+		return DEFAULT_LOGIC_PROCESS_COUNT;
+	}
+	while (!done)
+	{
+		DWORD rc = glpi(buffer, &returnLength);
+
+		if (FALSE == rc)
+		{
+			if (GetLastError() == ERROR_INSUFFICIENT_BUFFER)
+			{
+				if (buffer)	free(buffer);
+				buffer = (PSYSTEM_LOGICAL_PROCESSOR_INFORMATION)malloc(returnLength);
+				if (NULL == buffer)
+				{
+					return DEFAULT_LOGIC_PROCESS_COUNT;
+				}
+			}
+			else
+			{
+				return DEFAULT_LOGIC_PROCESS_COUNT;
+			}
+		}
+		else
+		{
+			done = TRUE;
+		}
+	}
+	ptr = buffer;
+	while (byteOffset + sizeof(SYSTEM_LOGICAL_PROCESSOR_INFORMATION) <= returnLength)
+	{
+		switch (ptr->Relationship)
+		{
+		case RelationProcessorCore:
+			// A hyperthreaded core supplies more than one logical processor.
+			logicalProcessorCount += CountSetBits(ptr->ProcessorMask);
+			break;
+		default:
+			break;
+		}
+
+		byteOffset += sizeof(SYSTEM_LOGICAL_PROCESSOR_INFORMATION);
+		ptr++;
+	}
+
+	if (logicalProcessorCount > DEFAULT_LOGIC_PROCESS_COUNT)	return logicalProcessorCount;
+
+	return DEFAULT_LOGIC_PROCESS_COUNT;
+}
+
+
 /*=============================================================================*/
 /*
 初始化系统。
@@ -327,7 +412,6 @@ UINT ThreadCreate(LPVOID pParam)
 	size_t detNoFace = 0,cnt=0,total= (*imgFiles).size();
 	for (size_t i = 0; i != imgFiles->size(); i++) {
 		filename = (*imgFiles)[i];
-//		flog << LDEBUG << "Thread "<<threadId<<" is proceed image file:"<<filename;
 		bContinue = false;
 		EnterCriticalSection(&CriticalObject);
 			if (0 != gFaceCache.count(filename)) {
@@ -382,7 +466,7 @@ UINT ThreadCreate(LPVOID pParam)
 			msgStr.clear();
 			ss << i;
 			ss >> msgStr;
-			flog << LINFO << "In function ThreadCreate(), we already proceed " << msgStr << "image files.";
+			flog << LINFO << "In function ThreadCreate(), we already proceed " << msgStr << " image files.";
 			ss.clear();
 			msgStr.clear();
 			ss << (total - i);
@@ -416,7 +500,6 @@ int create(
 	const std::string& faceImagesPath,
 	bool append
 ) {
-	const size_t NUM_OF_THREADS = 4;	//4T并发。
 	if (faceDbPath.find('\\') != string::npos || faceModelPath.find('\\') != string::npos || faceImagesPath.find('\\') != string::npos) {
 		flog << LERROR << "parameter path seperator should be char '/' in dllexport create(), so function return -1 now!";
 		return -1;
@@ -434,6 +517,8 @@ int create(
 		return -2;
 	}
 
+	const size_t NUM_OF_THREADS = getLogicProcessCount();
+	flog << LINFO << "In function create(), we will startup "<< NUM_OF_THREADS<<" threads to create facedb concurrency.";
 	CTime t1 = CTime::GetCurrentTime();
 	std::vector<string> faceFileVecSource;	//保存所有的图像文件名。
 	findFilesRecursively(faceImagesPath, faceFileVecSource);	//递归搜索faceImagesPath目录下的所有文件。
@@ -449,9 +534,10 @@ int create(
 	}
 
 	//TODO:考虑多个win thread并发处理。
-	InitializeCriticalSection(&CriticalObject);
+	InitializeCriticalSection(&CriticalObject);	//注意后面代码必须有DeleteCriticalSection配对。
 	size_t j = 0;
-	std::vector<std::string> tFileVec[NUM_OF_THREADS];//每个线程有自己的文件需要处理。
+	//std::vector<std::string> tFileVec[NUM_OF_THREADS];//每个线程有自己的文件需要处理。
+	std::vector<std::vector<std::string>> tFileVec(NUM_OF_THREADS);
 	for (size_t i = 0; i != NUM_OF_THREADS; i++) {
 		j = 0;
 		while (j!=threadTotal) {
@@ -489,8 +575,10 @@ int create(
 
 		break;
 	}
+	DeleteCriticalSection(&CriticalObject);
 
 	gFacedb.close();
+	
 	CTimeSpan ts = CTime::GetCurrentTime() - t1;
 	flog << LINFO << "In create()_external, it takes " << ts.GetTotalSeconds() << " seconds to proceed all "<< totalFiles <<" image files.";
 
