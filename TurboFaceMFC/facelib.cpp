@@ -646,16 +646,18 @@ int search(
 	faces.push_back(move(face_chip));
 	std::vector<matrix<float, 0, 1>> features = gNet(faces);
 	matrix<float> feature = features[0];
+	flog << LDEBUG << "In function search()_external, i get feature.";
 	float distance;
 	std::vector<pair<std::string, float>> matchedImageVec;
-
 	for (std::map<std::string, std::vector<matrix<float,0,1>>>::iterator it = gFaceCache.begin(); it != gFaceCache.end(); ++it) {
 		distance = face::Helper::minDistance(feature, (it->second));
 		if (distance < distanceThreshold) {
 			matchedImageVec.push_back(make_pair(it->first, distance));
+			flog << LDEBUG << "In function search()_external, distance match:"<<distance;
 		}
 	}
 	sort(matchedImageVec.begin(), matchedImageVec.end(), CmpByValue);
+	flog << LDEBUG << "In function search()_external, succeed to sort.";
 	if (0 != matchedImgFileVec.size()) {
 		matchedImgFileVec.clear();
 	}
